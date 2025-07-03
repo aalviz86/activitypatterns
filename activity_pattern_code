@@ -1,0 +1,169 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 0. SETUP
+# ─────────────────────────────────────────────────────────────────────────────
+
+## 0.1. Packages
+# Group‐load via pacman (installs if missing)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(
+  tidyverse, here, readxl, scales, lubridate, stringr, stringi,
+  brms, cmdstanr, future, future.apply,
+  circular, tidybayes, patchwork, cowplot, ggridges, ggcorrplot, overlap, suncalc,
+  ggplot2, ggpubr, ggrepel
+)
+
+## 0.2. Project directories
+# → place your .xlsx in project_root/data; outputs go to project_root/outputs
+data_dir   <- here("data")
+output_dir <- here("outputs")
+dir.create(output_dir, showWarnings = FALSE)
+
+## 0.3. Parallel / CmdStan
+options(mc.cores = parallel::detectCores() - 1)
+plan(multisession)
+cmdstanr::set_cmdstan_path()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. DATA LOADING & CLEANING
+# ─────────────────────────────────────────────────────────────────────────────
+
+clean_activity_data <- function(path, site_levels) {
+  df <- read_excel(path)
+  
+  # Normalize HourRadians into [0,2π)
+  df2 <- df %>%
+    mutate(
+      HourRadians = HourRadians %% (2*pi),
+      HourRadians = if_else(abs(HourRadians - 2*pi) < 1e-6, 2*pi, HourRadians)
+    ) %>%
+    filter(
+      between(HourRadians, 0, 2*pi),
+      d_roads < quantile(d_roads, 0.99, na.rm = TRUE),
+      !is.na(Site)
+    ) %>%
+    # Rescale to [0, π]
+    mutate(HourRadians = HourRadians / 2) %>%
+    # Clean site names & factor‐levels
+    mutate(
+      Site = stri_trans_general(Site, "Latin-ASCII"),
+      Site = str_replace_all(Site, "[.]", " "),
+      Site = str_squish(Site),
+      Site = factor(Site, levels = site_levels)
+    )
+  
+  # Quick sanity check
+  stopifnot(min(df2$HourRadians, na.rm = TRUE) >= 0,
+            max(df2$HourRadians, na.rm = TRUE) <= 2*pi)
+  df2
+}
+
+site_levels <- c("Arauquita", "Bita", "Cravo Norte",
+                 "Cumaribo", "Puerto Gaitan", "Puerto Rondon")
+
+df_clean <- clean_activity_data(
+  path = here(data_dir, "processed_activity_data_2.xlsx"),
+  site_levels = site_levels
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. MODEL FITTING
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 2.1 Priors
+priors <- c(
+  prior(normal(0, 0.5), class = "b"),
+  prior(gamma(3, 1), class = "sd"),
+  prior(gamma(2, 0.5), class = "kappa"),
+  prior(normal(0, 1), class = "Intercept")
+)
+
+# 2.2 Helper to fit & loo
+fit_and_loo <- function(formula, data, filename_prefix) {
+  fit <- brm(
+    formula = formula,
+    family  = von_mises(link = "tan_half"),
+    data    = data,
+    prior   = priors,
+    chains  = 8, cores = 4,
+    iter    = 16000, warmup = 6000,
+    control = list(adapt_delta = 0.99, max_treedepth = 20),
+    seed    = 123
+  )
+  assign(paste0("fit_", filename_prefix), fit, envir = .GlobalEnv)
+  loo_res <- loo(fit)
+  assign(paste0("loo_", filename_prefix), loo_res, envir = .GlobalEnv)
+  saveRDS(fit,  file = here(output_dir, paste0("fit_", filename_prefix, ".rds")))
+  saveRDS(loo_res, file = here(output_dir, paste0("loo_", filename_prefix, ".rds")))
+}
+
+# 2.3 Fit models
+fit_and_loo(
+  formula = HourRadians ~ forest_d + crops + forest_g + forest_a + (1 | Site),
+  data    = df_clean,
+  filename_prefix = "final"
+)
+
+fit_and_loo(
+  formula = HourRadians ~ forest_d + crops + forest_g + forest_a + d_streams + (1 | Site/CT),
+  data    = df_clean,
+  filename_prefix = "nested"
+)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. RANDOM EFFECTS PLOTS
+# ─────────────────────────────────────────────────────────────────────────────
+
+plot_ranef <- function(fit, group, out_png) {
+  re_df <- as.data.frame(ranef(fit)[[group]][,, "Intercept"]) %>%
+    rownames_to_column(group) %>%
+    rename(Estimate = Estimate, Lower = Q2.5, Upper = Q97.5)
+  
+  p <- ggplot(re_df, aes(x = reorder(.data[[group]], Estimate), y = Estimate)) +
+    geom_point() +
+    geom_errorbar(aes(ymin = Lower, ymax = Upper), width = 0.1) +
+    coord_flip() + theme_minimal() +
+    labs(x = group, y = "Intercept (rad)")
+  
+  ggsave(filename = here(output_dir, out_png),
+         plot = p, width = 6, height = 4, dpi = 300)
+}
+
+plot_ranef(fit_nested, "Site",      "ranef_site.png")
+plot_ranef(fit_nested, "Site:CT",   "ranef_site_CT.png")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. DENSITY CURVES PER CT
+# ─────────────────────────────────────────────────────────────────────────────
+
+make_density_df <- function(fit, n_draws = 500) {
+  draws <- as_draws_df(fit)
+  kappa <- posterior_summary(fit, variable = "kappa")[,"Estimate"]
+  
+  # extract CT intercepts + global intercept
+  ct_int_cols <- grep("^r_Site:CT\\[.*?,Intercept\\]$", names(draws), value = TRUE)
+  mu_df <- draws %>%
+    select(all_of(ct_int_cols), b_Intercept) %>%
+    mutate(across(all_of(ct_int_cols), ~ . + b_Intercept)) %>%
+    select(-b_Intercept) %>%
+    set_names(str_remove_all(ct_int_cols, "r_Site:CT\\[|,Intercept\\]"))
+  
+  angles <- circular(seq(0, 2*pi, length.out = 500))
+  
+  purrr::imap_dfr(mu_df, ~{
+    mus <- sample(.x, n_draws)
+    dens <- sapply(mus, function(m) dvonmises(angles, m, kappa))
+    tibble(
+      CT    = .y,
+      angle = as.numeric(angles),
+      mean  = rowMeans(dens),
+      lower = apply(dens, 1, quantile, 0.1),
+      upper = apply(dens, 1, quantile, 0.9)
+    )
+  })
+}
+
+density_df <- make_density_df(fit_nested)
+write_csv(density_df, here(output_dir, "density_per_CT.csv"))
+
+# (…and then similar helper + ggplot blocks for all your other plots…)
+
