@@ -5,8 +5,11 @@ This repository contains scripts, data, and outputs related to the Bayesian circ
 **Repository Structure**
 .
 ├── data/            # Raw and processed datasets
+
 ├── scripts/         # Analysis scripts (R scripts for modeling, visualization, and statistics)
+
 ├── results/         # Model outputs, plots, and tables
+
 ├── README.md        # Project description and instructions
 
 **Description**
