@@ -1,0 +1,16 @@
+"Site1","Site2","p_mu1_lt_mu2"
+"Arauquita","Bita",0.340575
+"Arauquita","Cravo.Norte",0.933575
+"Bita","Cravo.Norte",0.977025
+"Arauquita","Cumaribo",0.1998
+"Bita","Cumaribo",0.2732375
+"Cravo.Norte","Cumaribo",0.010775
+"Arauquita","Puerto.Gaitán",0.791175
+"Bita","Puerto.Gaitán",0.932
+"Cravo.Norte","Puerto.Gaitán",0.1889
+"Cumaribo","Puerto.Gaitán",0.981025
+"Arauquita","Puerto.Rondón",0.37965
+"Bita","Puerto.Rondón",0.537925
+"Cravo.Norte","Puerto.Rondón",0.0252625
+"Cumaribo","Puerto.Rondón",0.72425
+"Puerto.Gaitán","Puerto.Rondón",0.0899125
