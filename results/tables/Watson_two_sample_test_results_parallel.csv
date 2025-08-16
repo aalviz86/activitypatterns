@@ -1,0 +1,16 @@
+site1,site2,U2,pval_text
+Arauquita,Bita,0.219,0.01 < P-value < 0.05
+Arauquita,Cravo Norte,0.291,0.001 < P-value < 0.01
+Arauquita,Cumaribo,0.163,0.05 < P-value < 0.10
+Arauquita,Puerto Gaitán,0.499,P-value < 0.001
+Arauquita,Puerto Rondón,0.1,P-value > 0.10
+Bita,Cravo Norte,0.187,0.01 < P-value < 0.05
+Bita,Cumaribo,0.15,P-value > 0.10
+Bita,Puerto Gaitán,0.288,0.001 < P-value < 0.01
+Bita,Puerto Rondón,0.21,0.01 < P-value < 0.05
+Cravo Norte,Cumaribo,0.272,0.001 < P-value < 0.01
+Cravo Norte,Puerto Gaitán,0.052,P-value > 0.10
+Cravo Norte,Puerto Rondón,0.181,0.05 < P-value < 0.10
+Cumaribo,Puerto Gaitán,0.411,P-value < 0.001
+Cumaribo,Puerto Rondón,0.174,0.05 < P-value < 0.10
+Puerto Gaitán,Puerto Rondón,0.297,0.001 < P-value < 0.01
